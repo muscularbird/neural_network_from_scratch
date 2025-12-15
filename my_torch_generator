@@ -1,0 +1,13 @@
+#!/usr/bin/python3
+
+import sys
+from conf import model
+
+if __name__ == "__main__":
+    args = sys.argv
+    if (len(args) != 3):
+        print("Error: Bad arguments number.")
+        sys.exit(84)
+    number_of_networks = int(args[2])
+    for i in range(number_of_networks):
+        model.put_in_file(f"model_{i}.nn")
