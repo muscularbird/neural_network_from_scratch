@@ -8,8 +8,8 @@ from myModel import Model
 import random
 import time
 from parsing import parse_line
-import warnings
 from utils import POSITIONS
+import warnings
 
 # @warnings.deprecated("Unused old function needed to be removed.")
 def load_dataset_test(chessfile: str, batch_size: int) -> list[str]:
@@ -38,12 +38,13 @@ def train(loadfile: str, chessfile: str, savefile: Optional[str]) -> None:
 
     print(f"Model loaded: layers={len(model.layers)}, lr={model.lr}, batch_size={model.batch_size}, epochs={model.epochs}")
 
-    def mse(pred: Tensor, target: Tensor) -> Tensor:
+    def mse_batch(pred: Tensor, target: Tensor) -> Tensor:
+        """Compute MSE for entire batch at once"""
         diff: Tensor = pred - target
         squared_diff: Tensor = diff * diff
         # Mean over all elements
         total: Tensor = squared_diff.sum()
-        scale: Tensor = Tensor(1.0 / pred.data.size)
+        scale: Tensor = Tensor(0.5 / pred.data.size)
         return total * scale
     
     num_batches:   int
@@ -54,45 +55,52 @@ def train(loadfile: str, chessfile: str, savefile: Optional[str]) -> None:
     if not dataset_lines:
         print("Empty dataset\n")
         return
+    
     for epoch in range(model.epochs):
         epoch_loss = 0.0
-        
         random.shuffle(dataset_lines)
+        
         # Process multiple batches per epoch
-        for batch_idx in range(num_batches):  # Adjust number of batches as needed
-            start:       int       = batch_idx * model.batch_size
-            end:         int       = start + model.batch_size
+        for batch_idx in range(num_batches):
+            start: int = batch_idx * model.batch_size
+            end: int = start + model.batch_size
             batch_lines: list[str] = dataset_lines[start:end]
-            batch_loss:  float     = 0.0
             
-            # Zero gradients at the start of batch
+            # Prepare batch data
+            X_batch = []
+            y_batch = []
+            for single in batch_lines:
+                X, y = parse_line(single)
+                X_batch.append(X)
+                y_batch.append(y)
+            
+            # Convert to Tensors - batch processing
+            X_tensor = Tensor(np.array(X_batch))
+            y_tensor = Tensor(np.array(y_batch))
+            
+            # Zero gradients
             for p in params:
                 p.grad = np.zeros_like(p.data)
             
-            for single in batch_lines:
-                X, y = parse_line(single)
-                input: Tensor = Tensor(X)
-                y: Tensor = Tensor(y)
-                y_pred = model(input)
-                
-                loss : Tensor = mse(y_pred, y)
-                batch_loss += loss.data
-                
-                # Accumulate gradients
-                loss.backward()
+            # Single forward and backward pass for entire batch
+            y_pred = model(X_tensor)
+            loss = mse_batch(y_pred, y_tensor)
+            loss.backward()
             
-            size: int = len(batch_lines)
+            # Update parameters
             for p in params:
-                p.grad /= size
                 p.data -= model.lr * p.grad
-
-            avg_batch_loss = batch_loss / size
-            epoch_loss += avg_batch_loss
-            if batch_idx % model.batch_size == 0 or batch_idx == num_batches - 1:
-                print(f"\rEpoch {epoch+1}/{model.epochs}, Loss: {avg_batch_loss:.3f}, Progress: {batch_idx+1}/{num_batches}", end="", flush=True)
+            
+            epoch_loss += loss.data
+        
         avg_epoch_loss = epoch_loss / num_batches
-        model.put_in_file(loadfile)
-        print(f"Epoch {epoch+1}/{model.epochs}, Loss: {avg_epoch_loss}")
+        print(f"Epoch {epoch+1}/{model.epochs}, Loss: {avg_epoch_loss:.6f}")
+        
+        # Save model after each epoch
+        if savefile:
+            model.put_in_file(savefile)
+        else:
+            model.put_in_file(loadfile)
 
 
 def predict(loadfile: str, chessfile: str) -> None:
@@ -105,9 +113,8 @@ def predict(loadfile: str, chessfile: str) -> None:
             X, _ = parse_line(line.strip())
             input: Tensor = Tensor(X)
             model_output = model(input)
-            print("output:", POSITIONS[output.data.index(np.max(model_output.data))])
+            print("output:", POSITIONS[model_output.data.index(np.max(model_output.data))])
 
-    output = model()
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="My Torch",
