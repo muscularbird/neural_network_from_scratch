@@ -14,9 +14,25 @@ class Tensor:
 
         def _backward():
             if self.requires_grad:
-                self.grad += other.data * out.grad
+                grad = other.data * out.grad
+                # Handle broadcasting: sum over broadcasted dimensions
+                ndims_added = grad.ndim - self.data.ndim
+                for i in range(ndims_added):
+                    grad = grad.sum(axis=0)
+                for i, (dim_self, dim_grad) in enumerate(zip(self.data.shape, grad.shape)):
+                    if dim_self == 1 and dim_grad > 1:
+                        grad = grad.sum(axis=i, keepdims=True)
+                self.grad += grad
             if other.requires_grad:
-                other.grad += self.data * out.grad
+                grad = self.data * out.grad
+                # Handle broadcasting: sum over broadcasted dimensions
+                ndims_added = grad.ndim - other.data.ndim
+                for i in range(ndims_added):
+                    grad = grad.sum(axis=0)
+                for i, (dim_other, dim_grad) in enumerate(zip(other.data.shape, grad.shape)):
+                    if dim_other == 1 and dim_grad > 1:
+                        grad = grad.sum(axis=i, keepdims=True)
+                other.grad += grad
 
         out._backward = _backward
         out._parents = [self, other]
@@ -28,9 +44,27 @@ class Tensor:
 
         def _backward():
             if self.requires_grad:
-                self.grad += out.grad
+                # Handle broadcasting: sum over broadcasted dimensions
+                grad = out.grad
+                # Reduce grad to match self.data shape
+                ndims_added = grad.ndim - self.data.ndim
+                for i in range(ndims_added):
+                    grad = grad.sum(axis=0)
+                for i, (dim_self, dim_grad) in enumerate(zip(self.data.shape, grad.shape)):
+                    if dim_self == 1 and dim_grad > 1:
+                        grad = grad.sum(axis=i, keepdims=True)
+                self.grad += grad
             if other.requires_grad:
-                other.grad += out.grad
+                # Handle broadcasting: sum over broadcasted dimensions
+                grad = out.grad
+                # Reduce grad to match other.data shape
+                ndims_added = grad.ndim - other.data.ndim
+                for i in range(ndims_added):
+                    grad = grad.sum(axis=0)
+                for i, (dim_other, dim_grad) in enumerate(zip(other.data.shape, grad.shape)):
+                    if dim_other == 1 and dim_grad > 1:
+                        grad = grad.sum(axis=i, keepdims=True)
+                other.grad += grad
 
         out._backward = _backward
         out._parents = [self, other]
@@ -58,9 +92,9 @@ class Tensor:
             if out.grad is None:
                 return
             # use 2D intermediate to handle 1D/2D combinations
-            A = cp.atleast_2d(self.data)
-            B = cp.atleast_2d(other.data)
-            G = cp.atleast_2d(out.grad)
+            A = np.atleast_2d(self.data)
+            B = np.atleast_2d(other.data)
+            G = np.atleast_2d(out.grad)
 
             grad_A = G @ B.T
             grad_B = A.T @ G
@@ -86,7 +120,7 @@ class Tensor:
 
     # backward pass
     def backward(self):
-        self.grad = cp.ones_like(self.data)
+        self.grad = np.ones_like(self.data)
         stack = [self]
         visited = set()
         while stack:
@@ -101,7 +135,7 @@ class Tensor:
 
         def _backward():
             if self.requires_grad:
-                self.grad += cp.ones_like(self.data) * out.grad
+                self.grad += np.ones_like(self.data) * out.grad
 
         out._backward = _backward
         out._parents = [self]
